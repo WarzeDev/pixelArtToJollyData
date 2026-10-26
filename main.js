@@ -8,18 +8,35 @@ function decompress(jollydata) {
     return JSON.parse(LZString.decompressFromEncodedURIComponent(jollydata.replace('<jollyData-','').replace('>','')));
 }
 
+/* ---------- Theme ---------- */
+
+function setTheme(theme, save) {
+    document.documentElement.dataset.theme = theme;
+    $('theme').setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+    if (save) {
+        try { localStorage.setItem('theme', theme); } catch (e) {}
+    }
+};
+
+setTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light', false);
+
+$('theme').onclick = function() {
+    setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true);
+};
+
+/* ---------- Canvas ---------- */
+
+const stage = $('container');
+const cursor = $('cursor');
 const cvs = $('screen');
-const ctx = $('screen').getContext('2d');
+const ctx = cvs.getContext('2d');
 
 const pvs = document.createElement('canvas');
 const ptx = pvs.getContext('2d');
 
-let x = 0;
-let y = 0;
 let size = 16;
-let scale = 32;
 let color = '#888888';
-let mouse = [false, false]
+let tool = 'draw';
 let colordata;
 let finished_pixels;
 let finalized_pixels;
@@ -27,15 +44,14 @@ let igm = 8;
 
 function generateCanvas(sizeParam) {
     size = sizeParam;
-    $('screen').width = size;
-    $('screen').height = size;
+    cvs.width = size;
+    cvs.height = size;
     pvs.width = size;
     pvs.height = size;
-    $('sizetext').innerText = size;
-    scale = 512 / size;
-    $('screen').style.backgroundSize = `${1024/size}px`;
-    $('cursor').style.width = 512 / size + "px";
-    $('cursor').style.height = 512 / size + "px";
+    $('sizetext').innerText = size + ' × ' + size;
+    stage.style.setProperty('--n', size);
+    cursor.style.width = (100 / size) + '%';
+    cursor.style.height = (100 / size) + '%';
     colordata = generateArray();
 };
 
@@ -45,53 +61,168 @@ function generateArray() {
 
 generateCanvas(16);
 
-$('container').onmousemove = function(e) {
-    x = Math.floor((e.layerX - 5) / scale);
-    y = Math.floor((e.layerY - 5) / scale);
-    if (x < 0 || x >= cvs.width || y < 0 || y >= cvs.height) {
-        return;
-    }
-    $('cursor').style.left = x * scale + "px";
-    $('cursor').style.top = y * scale + "px";
-    updateDraw();
-};
-
-$('container').oncontextmenu = function(e) {
-    e.preventDefault();
-};
-
-$('container').onmousedown = function(e) {
-    if (e.which === 1) {
-        mouse[0] = true;
-    } else if (e.which === 3) {
-        mouse[1] = true;
-    };
-    updateDraw();
-};
-
-document.body.onmouseup = function(e) {
-    if (e.which === 1) {
-        mouse[0] = false;
-    } else if (e.which === 3) {
-        mouse[1] = false;
+function redraw() {
+    ctx.clearRect(0, 0, size, size);
+    for (let y = 0; y < size; y ++) {
+        for (let x = 0; x < size; x ++) {
+            if (colordata[y][x] !== 0) {
+                ctx.fillStyle = colordata[y][x];
+                ctx.fillRect(x, y, 1, 1);
+            };
+        };
     };
 };
 
-function updateDraw() {
-    if (mouse[0]) {
+/* ---------- Drawing (mouse, touch and pen) ---------- */
+
+let stroke = null; // 'draw' | 'erase' while a button is held
+let last = null;
+
+function cellAt(e) {
+    const rect = stage.getBoundingClientRect();
+    return {
+        x: Math.floor((e.clientX - rect.left) / rect.width * size),
+        y: Math.floor((e.clientY - rect.top) / rect.height * size)
+    };
+};
+
+function inBounds(c) {
+    return c.x >= 0 && c.x < size && c.y >= 0 && c.y < size;
+};
+
+function paint(x, y, mode) {
+    if (x < 0 || x >= size || y < 0 || y >= size) return;
+    if (mode === 'draw') {
         ctx.fillStyle = color;
         ctx.fillRect(x, y, 1, 1);
         colordata[y][x] = color;
-    };
-    if (mouse[1]) {
+    } else {
         ctx.clearRect(x, y, 1, 1);
         colordata[y][x] = 0;
     };
 };
 
+// Fills the gap between two pointer events so fast strokes stay unbroken
+function paintLine(a, b, mode) {
+    let x0 = a.x;
+    let y0 = a.y;
+    const dx = Math.abs(b.x - x0);
+    const dy = -Math.abs(b.y - y0);
+    const sx = x0 < b.x ? 1 : -1;
+    const sy = y0 < b.y ? 1 : -1;
+    let err = dx + dy;
+    while (true) {
+        paint(x0, y0, mode);
+        if (x0 === b.x && y0 === b.y) break;
+        const e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; };
+        if (e2 <= dx) { err += dx; y0 += sy; };
+    };
+};
+
+function moveCursor(c) {
+    if (!inBounds(c)) {
+        cursor.hidden = true;
+        return;
+    };
+    cursor.hidden = false;
+    cursor.style.left = (c.x * 100 / size) + '%';
+    cursor.style.top = (c.y * 100 / size) + '%';
+};
+
+stage.addEventListener('pointerdown', function(e) {
+    if (e.button !== 0 && e.button !== 2) return;
+    e.preventDefault();
+    stage.setPointerCapture(e.pointerId);
+    stroke = (e.button === 2 || tool === 'erase') ? 'erase' : 'draw';
+    const c = cellAt(e);
+    last = c;
+    moveCursor(c);
+    paintLine(c, c, stroke);
+});
+
+stage.addEventListener('pointermove', function(e) {
+    const c = cellAt(e);
+    moveCursor(c);
+    if (stroke) {
+        paintLine(last, c, stroke);
+        last = c;
+    };
+});
+
+function endStroke(e) {
+    stroke = null;
+    last = null;
+    if (e.pointerType !== 'mouse') cursor.hidden = true;
+};
+
+stage.addEventListener('pointerup', endStroke);
+stage.addEventListener('pointercancel', endStroke);
+stage.addEventListener('pointerleave', function() {
+    if (!stroke) cursor.hidden = true;
+});
+
+stage.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+});
+
+/* ---------- Tools ---------- */
+
+function setTool(t) {
+    tool = t;
+    $('tool-draw').setAttribute('aria-pressed', t === 'draw');
+    $('tool-erase').setAttribute('aria-pressed', t === 'erase');
+};
+
+$('tool-draw').onclick = function() { setTool('draw'); };
+$('tool-erase').onclick = function() { setTool('erase'); };
+
+$('clear').onclick = function() {
+    colordata = generateArray();
+    redraw();
+};
+
+$('color').oninput = function() {
+    color = this.value;
+    $('colortext').innerText = this.value.toUpperCase();
+    setTool('draw');
+};
+$('color').value = '#888888';
+
+$('size').oninput = function() {
+    generateCanvas(parseInt(this.value));
+};
+$('size').value = 16;
+
+$('igm').oninput = function() {
+    igm = parseInt(this.value, 10);
+    $('igmtext').innerText = igm;
+};
+$('igm').value = 8;
+
+/* ---------- Output generation ---------- */
+
 let output_obj;
 
-function generateOutput() {
+async function copyText(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch (e) {
+        try {
+            $('output').focus();
+            $('output').select();
+            return document.execCommand('copy');
+        } catch (e2) {
+            return false;
+        };
+    };
+};
+
+let generating = false;
+
+async function generateOutput() {
+    if (generating) return;
     output_obj = {objects: []};
     finished_pixels = generateArray(size);
     finalized_pixels = generateArray(size);
@@ -101,31 +232,33 @@ function generateOutput() {
             parsePixel(x, y);
         };
     };
-    $('shapecount').innerText = output_obj.objects.length + " shapes.";
-    $('output').value = compress(output_obj);
-    $('output').focus();
-    $('output').select();
-    $('generate').innerText = 'Copied to clipboard!';
-    $('generate').style.color = '#282';
-    $('generate').style.pointerEvents = 'none';
+    const count = output_obj.objects.length;
+    const text = compress(output_obj);
+    $('shapecount').innerText = count + (count === 1 ? ' shape' : ' shapes');
+    $('output').value = text;
+    $('outwrap').hidden = false;
+
+    generating = true;
+    const copied = await copyText(text);
+    $('genlabel').innerText = copied ? 'Copied to clipboard!' : 'Generated';
+    $('genicon').setAttribute('href', '#i-check');
+    $('generate').classList.add('done');
     setTimeout(function() {
-        $('generate').innerText = 'Generate';
-        $('generate').style.color = '';
-        $('generate').style.pointerEvents = 'all';
-    }, 2000)
-    document.execCommand('copy');
-    $('output').style.display = 'inline-block';
+        $('genlabel').innerText = 'Generate';
+        $('genicon').setAttribute('href', '#i-zap');
+        $('generate').classList.remove('done');
+        generating = false;
+    }, 2000);
 };
 
-$('size').oninput = function() {
-    generateCanvas(parseInt(this.value));
+$('copy').onclick = async function() {
+    const ok = await copyText($('output').value);
+    if (!ok) return;
+    $('copyicon').setAttribute('href', '#i-check');
+    setTimeout(function() {
+        $('copyicon').setAttribute('href', '#i-copy');
+    }, 1500);
 };
-$('size').value = 16;
-$('igm').oninput = function() {
-    igm = this.value;
-    $('igmtext').innerText = igm;
-}
-$('igm').value = 8;
 
 let current_x;
 let current_y;
@@ -275,30 +408,35 @@ function putOnPastry(color, points) {
     };
 };
 
-$('color').oninput = function() {
-    color = this.value;
-};
-$('color').value = '#888888';
+/* ---------- Image import ---------- */
 
-$('image').oninput = function() {
+$('image').onchange = function() {
+    const file = this.files[0];
+    if (!file) return;
     const reader = new FileReader();
     reader.onload = function() {
         const img = new Image();
-        img.src = this.result;
         img.onload = function() {
-            ctx.drawImage(img, 0, 0);
-            const data = ctx.getImageData(0, 0, size, size).data;
+            const tmp = document.createElement('canvas');
+            tmp.width = size;
+            tmp.height = size;
+            const tctx = tmp.getContext('2d');
+            tctx.drawImage(img, 0, 0);
+            const data = tctx.getImageData(0, 0, size, size).data;
             let p = 0;
             for (let i = 0; i < data.length; i += 4) {
                 if (data[i + 3] !== 0) {
-                    colordata[Math.floor(p / cvs.width)][p % cvs.width] = rgbToHex(data[i], data[i + 1], data[i + 2], data[i + 3]);
+                    colordata[Math.floor(p / size)][p % size] = rgbToHex(data[i], data[i + 1], data[i + 2], data[i + 3]);
                 };
                 p ++;
             };
+            redraw();
         };
+        img.src = reader.result;
     };
-    reader.readAsDataURL($('image').files[0]);
-};3
+    reader.readAsDataURL(file);
+    this.value = ''; // lets the same file be imported again
+};
 
 function componentToHex(c) {
     var hex = c.toString(16);
