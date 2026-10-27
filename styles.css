@@ -11,7 +11,7 @@
     --bg: #e9ecf2;
     --panel: #f8f9fc;
     --raised: #ffffff;
-    --ink: #161923;
+    --ink: #231618;
     --muted: #5a6073;
     --line: #d3d8e3;
     --accent: #d6285a;
@@ -166,14 +166,16 @@ button { cursor: pointer; }
 
 .stage {
     position: relative;
-    width: min(100%, 800px);
-    aspect-ratio: 1 / 1;
+    --w: 16;
+    --h: 16;
+    --cap: 800px; /* maximum height of the canvas */
+    width: min(100%, 800px, calc(var(--cap) * var(--w) / var(--h)));
+    aspect-ratio: var(--w) / var(--h);
     border-radius: 8px;
     overflow: hidden;
     cursor: crosshair;
     touch-action: none;
     box-shadow: 0 0 0 2px var(--line), var(--shadow);
-    --n: 16;
     background-color: var(--check-a);
     background-image: conic-gradient(
         var(--check-b) 25%,
@@ -181,7 +183,7 @@ button { cursor: pointer; }
         var(--check-b) 0 75%,
         transparent 0
     );
-    background-size: calc(200% / var(--n)) calc(200% / var(--n));
+    background-size: calc(200% / var(--w)) calc(200% / var(--h));
 }
 
 #screen {
@@ -324,11 +326,62 @@ button { cursor: pointer; }
     gap: 8px;
 }
 
-.value {
+.num {
+    width: 80px;
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--raised);
+    color: var(--ink);
     font-size: 1rem;
     font-weight: 800;
     font-variant-numeric: tabular-nums;
+    text-align: right;
+    -webkit-user-select: text;
+    user-select: text;
 }
+.num:hover { border-color: var(--muted); }
+
+.palette {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.palette:empty { display: none; }
+
+.swatch {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 2px solid var(--line);
+    border-radius: 8px;
+}
+.swatch:hover { border-color: var(--muted); }
+.swatch[aria-pressed="true"] {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.btn.primary {
+    background: var(--accent);
+    border-color: transparent;
+    color: var(--on-accent);
+}
+
+.dlg {
+    width: min(92vw, 420px);
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--panel);
+    color: var(--ink);
+    box-shadow: var(--shadow);
+}
+.dlg::backdrop { background: rgba(0, 0, 0, 0.55); }
+.dlg form { display: grid; gap: 14px; padding: 22px; }
+.dlg h2 { margin: 0; font-size: 1.1rem; font-weight: 800; }
+.dlg p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.dlg-actions { display: grid; gap: 8px; }
 
 input[type="range"] {
     width: 100%;
@@ -434,8 +487,8 @@ input[type="range"] {
         padding: 24px;
     }
     .stage {
-        width: min(100%, calc(100vh - 108px), 800px);
-        width: min(100%, calc(100dvh - 108px), 800px);
+        --cap: min(800px, calc(100vh - 108px));
+        --cap: min(800px, calc(100dvh - 108px));
     }
     .controls {
         grid-area: side;

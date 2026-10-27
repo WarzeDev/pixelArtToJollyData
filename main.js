@@ -26,6 +26,12 @@ $('theme').onclick = function() {
 
 /* ---------- Canvas ---------- */
 
+const MIN_SIZE = 1;
+const MAX_SIZE = 128;
+const MIN_IGM = 1;
+const MAX_IGM = 64;
+const PALETTE_MAX = 8;
+
 const stage = $('container');
 const cursor = $('cursor');
 const cvs = $('screen');
@@ -34,7 +40,8 @@ const ctx = cvs.getContext('2d');
 const pvs = document.createElement('canvas');
 const ptx = pvs.getContext('2d');
 
-let size = 16;
+let w = 16; // canvas width in pixels
+let h = 16; // canvas height in pixels
 let color = '#888888';
 let tool = 'draw';
 let colordata;
@@ -42,35 +49,123 @@ let finished_pixels;
 let finalized_pixels;
 let igm = 8;
 
-function generateCanvas(sizeParam) {
-    size = sizeParam;
-    cvs.width = size;
-    cvs.height = size;
-    pvs.width = size;
-    pvs.height = size;
-    $('sizetext').innerText = size + ' × ' + size;
-    stage.style.setProperty('--n', size);
-    cursor.style.width = (100 / size) + '%';
-    cursor.style.height = (100 / size) + '%';
-    colordata = generateArray();
+// Rounds to an integer inside [min, max]; returns fallback for empty / non-numeric input
+function clampInt(value, min, max, fallback) {
+    if (String(value).trim() === '') return fallback;
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
 };
 
 function generateArray() {
-    return Array(size).fill().map(() => Array(size).fill(0));
+    return Array.from({length: h}, () => Array(w).fill(0));
 };
 
-generateCanvas(16);
+function syncSizeUI() {
+    $('wslider').value = w;
+    $('wtext').value = w;
+    $('hslider').value = h;
+    $('htext').value = h;
+    stage.style.setProperty('--w', w);
+    stage.style.setProperty('--h', h);
+    cursor.style.width = (100 / w) + '%';
+    cursor.style.height = (100 / h) + '%';
+    cursor.hidden = true;
+};
+
+// Changes the canvas size while keeping the existing drawing (cropped or padded as needed)
+function resizeCanvas(newW, newH) {
+    if (colordata && newW === w && newH === h) {
+        syncSizeUI();
+        return;
+    };
+    const old = colordata;
+    w = newW;
+    h = newH;
+    cvs.width = w;
+    cvs.height = h;
+    pvs.width = w;
+    pvs.height = h;
+    colordata = generateArray();
+    if (old) {
+        const copyH = Math.min(old.length, h);
+        const copyW = Math.min(old[0].length, w);
+        for (let y = 0; y < copyH; y ++) {
+            for (let x = 0; x < copyW; x ++) {
+                colordata[y][x] = old[y][x];
+            };
+        };
+    };
+    syncSizeUI();
+    redraw();
+};
 
 function redraw() {
-    ctx.clearRect(0, 0, size, size);
-    for (let y = 0; y < size; y ++) {
-        for (let x = 0; x < size; x ++) {
+    ctx.clearRect(0, 0, w, h);
+    for (let y = 0; y < h; y ++) {
+        for (let x = 0; x < w; x ++) {
             if (colordata[y][x] !== 0) {
                 ctx.fillStyle = colordata[y][x];
                 ctx.fillRect(x, y, 1, 1);
             };
         };
     };
+};
+
+resizeCanvas(16, 16);
+
+/* ---------- Color palette ---------- */
+
+function loadPalette() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('palette'));
+        if (Array.isArray(saved)) {
+            return saved
+                .filter(function(c) { return typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c); })
+                .map(function(c) { return c.toLowerCase(); })
+                .filter(function(c, i, arr) { return arr.indexOf(c) === i; })
+                .slice(0, PALETTE_MAX);
+        };
+    } catch (e) {}
+    return [];
+};
+
+let palette = loadPalette();
+
+function savePalette() {
+    try { localStorage.setItem('palette', JSON.stringify(palette)); } catch (e) {}
+};
+
+function renderPalette() {
+    const box = $('palette');
+    box.textContent = '';
+    palette.forEach(function(c) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'swatch';
+        b.style.background = c;
+        b.title = c.toUpperCase();
+        b.setAttribute('aria-label', 'Use color ' + c.toUpperCase());
+        b.setAttribute('aria-pressed', c === color);
+        b.onclick = function() { setColor(c); };
+        box.appendChild(b);
+    });
+};
+
+// New colors go to the front; colors already in the palette keep their place
+function rememberColor(c) {
+    if (palette.indexOf(c) !== -1) return;
+    palette = [c].concat(palette).slice(0, PALETTE_MAX);
+    savePalette();
+    renderPalette();
+};
+
+function setColor(c) {
+    color = c.toLowerCase();
+    $('color').value = color;
+    $('colortext').innerText = color.toUpperCase();
+    setTool('draw');
+    renderPalette();
 };
 
 /* ---------- Drawing (mouse, touch and pen) ---------- */
@@ -81,17 +176,17 @@ let last = null;
 function cellAt(e) {
     const rect = stage.getBoundingClientRect();
     return {
-        x: Math.floor((e.clientX - rect.left) / rect.width * size),
-        y: Math.floor((e.clientY - rect.top) / rect.height * size)
+        x: Math.floor((e.clientX - rect.left) / rect.width * w),
+        y: Math.floor((e.clientY - rect.top) / rect.height * h)
     };
 };
 
 function inBounds(c) {
-    return c.x >= 0 && c.x < size && c.y >= 0 && c.y < size;
+    return c.x >= 0 && c.x < w && c.y >= 0 && c.y < h;
 };
 
 function paint(x, y, mode) {
-    if (x < 0 || x >= size || y < 0 || y >= size) return;
+    if (x < 0 || x >= w || y < 0 || y >= h) return;
     if (mode === 'draw') {
         ctx.fillStyle = color;
         ctx.fillRect(x, y, 1, 1);
@@ -126,8 +221,8 @@ function moveCursor(c) {
         return;
     };
     cursor.hidden = false;
-    cursor.style.left = (c.x * 100 / size) + '%';
-    cursor.style.top = (c.y * 100 / size) + '%';
+    cursor.style.left = (c.x * 100 / w) + '%';
+    cursor.style.top = (c.y * 100 / h) + '%';
 };
 
 stage.addEventListener('pointerdown', function(e) {
@@ -135,6 +230,7 @@ stage.addEventListener('pointerdown', function(e) {
     e.preventDefault();
     stage.setPointerCapture(e.pointerId);
     stroke = (e.button === 2 || tool === 'erase') ? 'erase' : 'draw';
+    if (stroke === 'draw') rememberColor(color);
     const c = cellAt(e);
     last = c;
     moveCursor(c);
@@ -183,22 +279,50 @@ $('clear').onclick = function() {
 };
 
 $('color').oninput = function() {
-    color = this.value;
-    $('colortext').innerText = this.value.toUpperCase();
-    setTool('draw');
+    setColor(this.value);
 };
-$('color').value = '#888888';
+setColor('#888888');
 
-$('size').oninput = function() {
-    generateCanvas(parseInt(this.value));
+/* ---------- Size controls (sliders + typed numbers) ---------- */
+
+// Sliders resize live; typed values are applied when committed (Enter / leaving the field),
+// so typing "128" does not crop the drawing to 1 and 12 on the way.
+$('wslider').oninput = function() {
+    resizeCanvas(parseInt(this.value, 10), h);
 };
-$('size').value = 16;
+$('hslider').oninput = function() {
+    resizeCanvas(w, parseInt(this.value, 10));
+};
+$('wtext').onchange = function() {
+    resizeCanvas(clampInt(this.value, MIN_SIZE, MAX_SIZE, w), h);
+    syncSizeUI(); // also restores the field if the typed value was invalid
+};
+$('htext').onchange = function() {
+    resizeCanvas(w, clampInt(this.value, MIN_SIZE, MAX_SIZE, h));
+    syncSizeUI();
+};
+
+function setIgm(v) {
+    igm = v;
+    $('igm').value = v;
+    $('igmtext').value = v;
+};
 
 $('igm').oninput = function() {
-    igm = parseInt(this.value, 10);
-    $('igmtext').innerText = igm;
+    setIgm(parseInt(this.value, 10));
 };
-$('igm').value = 8;
+// In-game size doesn't touch the drawing, so valid typed values apply immediately
+$('igmtext').oninput = function() {
+    const n = Number(this.value);
+    if (this.value.trim() !== '' && Number.isInteger(n) && n >= MIN_IGM && n <= MAX_IGM) {
+        igm = n;
+        $('igm').value = n;
+    };
+};
+$('igmtext').onchange = function() {
+    setIgm(clampInt(this.value, MIN_IGM, MAX_IGM, igm));
+};
+setIgm(8);
 
 /* ---------- Output generation ---------- */
 
@@ -224,11 +348,11 @@ let generating = false;
 async function generateOutput() {
     if (generating) return;
     output_obj = {objects: []};
-    finished_pixels = generateArray(size);
-    finalized_pixels = generateArray(size);
-    ptx.clearRect(0, 0, size, size);
-    for (let y = 0; y < size; y ++) {
-        for (let x = 0; x < size; x ++) {
+    finished_pixels = generateArray();
+    finalized_pixels = generateArray();
+    ptx.clearRect(0, 0, w, h);
+    for (let y = 0; y < h; y ++) {
+        for (let x = 0; x < w; x ++) {
             parsePixel(x, y);
         };
     };
@@ -370,8 +494,8 @@ function parsePixel(x, y) {
 };
 
 function putOnPastry(color, points) {
-    let min_x = size;
-    let min_y = size;
+    let min_x = w;
+    let min_y = h;
     let max_x = 0;
     let max_y = 0;
     for (let i = 0; i < points.length; i ++) {
@@ -410,6 +534,58 @@ function putOnPastry(color, points) {
 
 /* ---------- Image import ---------- */
 
+// Resolves to 'resize', 'keep' or 'cancel'
+function askResize(iw, ih) {
+    const dlg = $('resizedlg');
+    const crops = iw > w || ih > h;
+    const msg = 'The image is ' + iw + ' × ' + ih + ' px and the canvas is ' + w + ' × ' + h + ' px.' +
+        (crops ? ' Keeping the current size will crop the parts of the image outside the canvas.' : '');
+
+    if (typeof dlg.showModal !== 'function') {
+        return Promise.resolve(confirm(msg + '\n\nResize the canvas to ' + iw + ' × ' + ih + '?') ? 'resize' : 'keep');
+    };
+
+    return new Promise(function(resolve) {
+        $('resizemsg').textContent = msg;
+        $('resize-yes').textContent = 'Resize canvas to ' + iw + ' × ' + ih;
+        $('resize-no').textContent = 'Keep ' + w + ' × ' + h;
+        dlg.returnValue = '';
+        dlg.addEventListener('close', function() {
+            resolve(dlg.returnValue || 'cancel'); // Escape closes with an empty value
+        }, {once: true});
+        dlg.showModal();
+    });
+};
+
+// Clicking the dimmed backdrop cancels the import
+$('resizedlg').addEventListener('click', function(e) {
+    if (e.target === this) this.close('cancel');
+});
+
+async function importImage(img) {
+    const iw = img.naturalWidth;
+    const ih = img.naturalHeight;
+    if ((iw !== w || ih !== h) && iw <= MAX_SIZE && ih <= MAX_SIZE) {
+        const choice = await askResize(iw, ih);
+        if (choice === 'cancel') return;
+        if (choice === 'resize') resizeCanvas(iw, ih);
+    };
+    const tmp = document.createElement('canvas');
+    tmp.width = w;
+    tmp.height = h;
+    const tctx = tmp.getContext('2d');
+    tctx.drawImage(img, 0, 0);
+    const data = tctx.getImageData(0, 0, w, h).data;
+    let p = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] !== 0) {
+            colordata[Math.floor(p / w)][p % w] = rgbToHex(data[i], data[i + 1], data[i + 2], data[i + 3]);
+        };
+        p ++;
+    };
+    redraw();
+};
+
 $('image').onchange = function() {
     const file = this.files[0];
     if (!file) return;
@@ -417,20 +593,7 @@ $('image').onchange = function() {
     reader.onload = function() {
         const img = new Image();
         img.onload = function() {
-            const tmp = document.createElement('canvas');
-            tmp.width = size;
-            tmp.height = size;
-            const tctx = tmp.getContext('2d');
-            tctx.drawImage(img, 0, 0);
-            const data = tctx.getImageData(0, 0, size, size).data;
-            let p = 0;
-            for (let i = 0; i < data.length; i += 4) {
-                if (data[i + 3] !== 0) {
-                    colordata[Math.floor(p / size)][p % size] = rgbToHex(data[i], data[i + 1], data[i + 2], data[i + 3]);
-                };
-                p ++;
-            };
-            redraw();
+            importImage(img);
         };
         img.src = reader.result;
     };

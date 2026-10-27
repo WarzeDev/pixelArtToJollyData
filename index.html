@@ -122,6 +122,7 @@
                     <input id="color" type="color" value="#888888" aria-label="Drawing color">
                     <span id="colortext" class="hex">#888888</span>
                 </div>
+                <div id="palette" class="palette" role="group" aria-label="Recently used colors"></div>
             </section>
 
             <section class="sec">
@@ -131,24 +132,29 @@
                     <span>Choose PNG</span>
                     <input id="image" class="sr-only" type="file" accept="image/png">
                 </label>
-                <p class="hint">Pixels beyond the canvas size are cropped.</p>
             </section>
 
             <section class="sec">
                 <div class="field">
                     <div class="field-head">
-                        <label for="size"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg>Canvas size</label>
-                        <span id="sizetext" class="value">16</span>
+                        <label for="wtext"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg>Canvas width</label>
+                        <input id="wtext" class="num" type="number" inputmode="numeric" min="1" max="128" step="1" value="16">
                     </div>
-                    <input id="size" min="4" max="128" step="4" value="16" type="range">
+                    <input id="wslider" min="1" max="128" step="1" value="16" type="range" aria-label="Canvas width slider">
                 </div>
                 <div class="field">
                     <div class="field-head">
-                        <label for="igm"><svg class="ico" aria-hidden="true"><use href="#i-expand"/></svg>In-game size</label>
-                        <span id="igmtext" class="value">8</span>
+                        <label for="htext"><svg class="ico" aria-hidden="true"><use href="#i-grid"/></svg>Canvas height</label>
+                        <input id="htext" class="num" type="number" inputmode="numeric" min="1" max="128" step="1" value="16">
                     </div>
-                    <input id="igm" min="1" max="64" step="1" value="8" type="range">
-                    <p class="hint">Game units per pixel.</p>
+                    <input id="hslider" min="1" max="128" step="1" value="16" type="range" aria-label="Canvas height slider">
+                </div>
+                <div class="field">
+                    <div class="field-head">
+                        <label for="igmtext"><svg class="ico" aria-hidden="true"><use href="#i-expand"/></svg>In-game size</label>
+                        <input id="igmtext" class="num" type="number" inputmode="numeric" min="1" max="64" step="1" value="8">
+                    </div>
+                    <input id="igm" min="1" max="64" step="1" value="8" type="range" aria-label="In-game size slider">
                 </div>
             </section>
 
@@ -176,6 +182,18 @@
             </footer>
         </aside>
     </div>
+
+    <dialog id="resizedlg" class="dlg" aria-labelledby="resizetitle">
+        <form method="dialog">
+            <h2 id="resizetitle">Resize canvas?</h2>
+            <p id="resizemsg"></p>
+            <div class="dlg-actions">
+                <button id="resize-yes" class="btn primary" type="submit" value="resize"></button>
+                <button id="resize-no" class="btn" type="submit" value="keep"></button>
+                <button class="btn" type="submit" value="cancel">Cancel import</button>
+            </div>
+        </form>
+    </dialog>
 
     <script src="main.js"></script>
 </body>
