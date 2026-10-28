@@ -11,12 +11,13 @@
     --bg: #e9ecf2;
     --panel: #f8f9fc;
     --raised: #ffffff;
-    --ink: #231618;
+    --ink: #161923;
     --muted: #5a6073;
     --line: #d3d8e3;
     --accent: #d6285a;
     --accent-deep: #9e1540;
     --on-accent: #ffffff;
+    --warn: #b45309;
     --ok: #23844f;
     --ok-deep: #175c36;
     --check-a: #ffffff;
@@ -35,6 +36,7 @@
     --accent: #ff6b92;
     --accent-deep: #c43a64;
     --on-accent: #1b0710;
+    --warn: #ffb347;
     --ok: #4ccb86;
     --ok-deep: #2c8f58;
     --check-a: #1c202b;
@@ -176,6 +178,14 @@ button { cursor: pointer; }
     cursor: crosshair;
     touch-action: none;
     box-shadow: 0 0 0 2px var(--line), var(--shadow);
+}
+
+/* The zoomable / pannable layer inside the stage */
+.view {
+    position: absolute;
+    inset: 0;
+    transform-origin: 0 0;
+    --z: 1;
     background-color: var(--check-a);
     background-image: conic-gradient(
         var(--check-b) 25%,
@@ -186,7 +196,22 @@ button { cursor: pointer; }
     background-size: calc(200% / var(--w)) calc(200% / var(--h));
 }
 
-#screen {
+.stage.pan { cursor: grab; }
+.stage.panning { cursor: grabbing; }
+
+.zoombar {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    z-index: 2;
+    display: flex;
+    gap: 6px;
+}
+.zoombar .icon-btn { width: 34px; height: 34px; opacity: 0.9; }
+.zoombar .icon-btn .ico { width: 18px; height: 18px; }
+
+#screen,
+#preview {
     display: block;
     width: 100%;
     height: 100%;
@@ -199,8 +224,13 @@ button { cursor: pointer; }
     top: 0;
     left: 0;
     pointer-events: none;
-    outline: 1px solid #000;
-    box-shadow: inset 0 0 0 1px #fff;
+    outline: calc(1px / var(--z, 1)) solid #000;
+    box-shadow: inset 0 0 0 calc(1px / var(--z, 1)) #fff;
+}
+
+#preview {
+    position: absolute;
+    inset: 0;
 }
 
 /* ---------- Controls ---------- */
@@ -382,6 +412,44 @@ button { cursor: pointer; }
 .dlg h2 { margin: 0; font-size: 1.1rem; font-weight: 800; }
 .dlg p { margin: 0; color: var(--muted); font-size: 0.9rem; }
 .dlg-actions { display: grid; gap: 8px; }
+.dlg textarea {
+    width: 100%;
+    height: 160px;
+    padding: 10px;
+    resize: vertical;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+    word-break: break-all;
+    -webkit-user-select: text;
+    user-select: text;
+}
+.dlg .err { color: var(--accent); font-weight: 600; }
+
+.tools { grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.tools button { padding: 9px 0; }
+
+.iconrow {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
+    gap: 8px;
+}
+.iconrow.four { grid-template-columns: repeat(4, 1fr); }
+.iconrow .btn { padding: 10px 0; }
+
+.importrow {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 8px;
+}
+
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn:disabled:hover { border-color: var(--line); }
+
+.count.warn { color: var(--warn); }
 
 input[type="range"] {
     width: 100%;
